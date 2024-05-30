@@ -1,0 +1,1 @@
+### Instantiation of loss functions ###
