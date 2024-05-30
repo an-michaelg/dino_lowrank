@@ -1,6 +1,6 @@
-### Datamodule for single images from TMED with generic image-based transform ###
+### dataloader for TMED_2 dataset single images with generic image-based transform ###
 
-# dataloader for TMED_2 datasets
+# TODO revisit after DINO code
 import os
 import re
 from PIL import Image
