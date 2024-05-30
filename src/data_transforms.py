@@ -85,7 +85,7 @@ class Solarization(object):
             return img
             
 # creds: https://github.com/facebookresearch/dino/blob/main/main_dino.py
-class DinoTransform(object):
+class DataAugmentationDino(object):
     def __init__(self, img_resolution, mean, std, global_crops_scale=(0.4, 1)):
         #, local_crops_scale=(0.25, 0.5), local_crops_number=0):
         assert img_resolution % 4 == 0
