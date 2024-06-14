@@ -37,9 +37,6 @@ def get_random_transform(img_resolution=224,  mean=IMG_MEAN['natural'], std=IMG_
            transforms.Normalize(mean, std)
            ])
     return tfr
-    
-def get_random_dino_transform(img_resolution=224,  mean=IMG_MEAN['natural'], std=IMG_STD['natural'], global_crops_scale=(0.4, 1)):
-    return DinoTransform(img_resolution, mean, std, global_crops_scale)
 
 class GaussianBlur(object):
     def __init__(self, p):
@@ -86,17 +83,16 @@ class Solarization(object):
             
 # creds: https://github.com/facebookresearch/dino/blob/main/main_dino.py
 class DataAugmentationDino(object):
-    def __init__(self, img_resolution, mean, std, global_crops_scale=(0.4, 1)):
-        #, local_crops_scale=(0.25, 0.5), local_crops_number=0):
-        assert img_resolution % 4 == 0
+    def __init__(self, global_crops_scale=(0.4, 1), local_crops_scale=(0.05, 0.4), local_crops_number=8, mean=IMG_MEAN['natural'], std=IMG_STD['natural']):
         flip_and_color_jitter = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(degrees=15), # NEW
+            AdaptiveGamma(p=0.5), # NEW
             transforms.RandomApply(
-                [transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.0)],
+                [transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.0)], # MODIFIED 4 GRAYSCALE
                 p=0.8
             ),
             #transforms.RandomGrayscale(p=0.2),
-            AdaptiveGamma(p=0.5),
         ])
         normalize = transforms.Compose([
             transforms.ToTensor(),
@@ -105,33 +101,33 @@ class DataAugmentationDino(object):
 
         # first global crop
         self.global_transfo1 = transforms.Compose([
-            transforms.RandomResizedCrop(img_resolution, scale=global_crops_scale, interpolation=Image.BICUBIC),
+            transforms.RandomResizedCrop(224, scale=global_crops_scale, interpolation=Image.BICUBIC),
             flip_and_color_jitter,
-            utils.GaussianBlur(p=1.0),
+            GaussianBlur(p=1.0),
             normalize,
         ])
         # second global crop
         self.global_transfo2 = transforms.Compose([
-            transforms.RandomResizedCrop(img_resolution, scale=global_crops_scale, interpolation=Image.BICUBIC),
+            transforms.RandomResizedCrop(224, scale=global_crops_scale, interpolation=Image.BICUBIC),
             flip_and_color_jitter,
-            utils.GaussianBlur(p=0.1),
+            GaussianBlur(p=0.1),
             #utils.Solarization(0.2),
             normalize,
         ])
-        # # transformation for the local small crops
-        # self.local_crops_number = local_crops_number
-        # self.local_transfo = transforms.Compose([
-            # transforms.RandomResizedCrop(img_resolution//4, scale=local_crops_scale, interpolation=Image.BICUBIC),
-            # flip_and_color_jitter,
-            # #utils.GaussianBlur(p=0.5),
-            # normalize,
-        # ])
+        # transformation for the local small crops
+        self.local_crops_number = local_crops_number
+        self.local_transfo = transforms.Compose([
+            transforms.RandomResizedCrop(96, scale=local_crops_scale, interpolation=Image.BICUBIC),
+            flip_and_color_jitter,
+            GaussianBlur(p=0.5),
+            normalize,
+        ])
 
     def __call__(self, image):
         crops = []
         crops.append(self.global_transfo1(image))
         crops.append(self.global_transfo2(image))
-        # # a multi-crop wrapper is used to handle images of different resolutions, where the images are placed together
-        # for _ in range(self.local_crops_number):
-            # crops.append(self.local_transfo(image))
+        # a multi-crop wrapper is used to handle images of different resolutions, where the images are placed together
+        for _ in range(self.local_crops_number):
+            crops.append(self.local_transfo(image))
         return crops

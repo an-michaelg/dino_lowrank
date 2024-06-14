@@ -116,8 +116,8 @@ class TMED2(Dataset):
     def __init__(
         self,
         dataset_root: str = DATASET_ROOT,
-        split: str = "train", # train/val/test
-        parasternal_only: bool = True, 
+        split: str = "train", # train/val/test/all/unlabeled
+        parasternal_only: bool = False, 
         label_scheme_name: str = "all",
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
@@ -129,40 +129,37 @@ class TMED2(Dataset):
         self.transform = transform
         self.target_transform = target_transform
         
-        df_path = os.path.join(dataset_root, "DEV479", "TMED2_fold0_labeledpart.csv")
-        df = pd.read_csv(df_path)
-        
-        # filter out the samples without diagnosis label
-        df = df[df['diagnosis_label']!='Not_Provided']
-        
-        # keep only parasternal views
-        if parasternal_only:
-            df = df[(df['view_label'] == 'PLAX') | (df['view_label'] == 'PSAX')]
-        
-        # split selection
-        if split in ["train", "val", "test"]:
-            df = df[df["diagnosis_classifier_split"]==split]
-        elif split != "all":
-            assert ValueError(f"Split must be train/val/test/all, received {split}")
+        if split == "unlabeled":
+            df_path = os.path.join(dataset_root, "TMED2_train_unlabeled.csv")
+            df = pd.read_csv(df_path)
+        else:
+            df_path = os.path.join(dataset_root, "DEV479", "TMED2_fold0_labeledpart.csv")
+            df = pd.read_csv(df_path)
             
-        # filter out any labels based on label scheme
-        self.scheme = tmed_label_schemes[label_scheme_name]
-        df = df[df["diagnosis_label"].isin(self.scheme.keys())]
+            # filter out the samples without diagnosis label
+            df = df[df['diagnosis_label']!='Not_Provided']
+            
+            # keep only parasternal views
+            if parasternal_only:
+                df = df[(df['view_label'] == 'PLAX') | (df['view_label'] == 'PSAX')]
+            
+            # split selection
+            if split in ["train", "val", "test"]:
+                df = df[df["diagnosis_classifier_split"]==split]
+            elif split != "all":
+                assert ValueError(f"Split must be train/val/test/all/unlabeled, received {split}")
+            
+            # filter out any labels based on label scheme
+            self.scheme = tmed_label_schemes[label_scheme_name]
+            df = df[df["diagnosis_label"].isin(self.scheme.keys())]
             
         # populate some fields useful for input/label reading
-        df['path'] = df.apply(self.get_filename, axis=1)
+        if split == "unlabeled":
+            df['path'] = df.apply(self.get_filename, axis=1)
+        else:
+            df['path'] = df.apply(self.get_filename_unlabeled, axis=1)
         
         self.dataset = df
-        
-        # create one-hot pseudolabels
-        self.num_classes = len(np.unique(list(self.scheme.values())))
-        self.pseudo = {}
-        for i in range(len(self.dataset)):
-            data_info = self.dataset.iloc[i]
-            label = int(self.scheme[data_info["diagnosis_label"]])
-            uid = data_info["path"]
-            self.pseudo[uid] = np.zeros(self.num_classes)
-            self.pseudo[uid][label] = 1.0
         
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
@@ -178,27 +175,30 @@ class TMED2(Dataset):
         data_info = self.dataset.iloc[index]
         uid = data_info['path']
         img = load_image(uid) # 112x112
-        y = int(self.scheme[data_info["diagnosis_label"]]) # human-assigned GT
-        y_u = self.pseudo[uid] # uncertainty-augmented target
-        view = data_info['view_label']
-        y_view = int(tmed_view_schemes['all'][view])
-        n_view_classes = len(np.unique(list(tmed_view_schemes['all'].values())))
-        y_view_u = np.zeros(n_view_classes)
-        y_view_u[y_view] = 1.0
+        if self.split == "unlabeled":
+            y = 0
+            y_view = 0
+        else:
+            y = int(self.scheme[data_info["diagnosis_label"]]) # human-assigned GT
+            view = data_info['view_label']
+            y_view = int(tmed_view_schemes['all'][view])
 
         if self.transform is not None:
             img = self.transform(img)
 
         if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return {'x':img, 'y':y, 'y_u':y_u, 'uid':uid, 'view':view, 'query_key':data_info['query_key']}
+            y = self.target_transform(y)
+        return img, [y, y_view] # modified from original for main_dino compatibility
+        #return {'x':img, 'y':y, 'y_u':y_u, 'uid':uid, 'view':view, 'query_key':data_info['query_key']}
 
     def __len__(self):
         return len(self.dataset)
         
     def get_filename(self, row):
         return os.path.join(self.dataset_root, row['SourceFolder'], row['query_key'])
+        
+    def get_filename_unlabeled(row):
+        return os.path.join(self.dataset_root, 'unlabeled_set', 'unlabeled_set', row['query_key'])
     
     def get_pseudo(self):
         return self.pseudo

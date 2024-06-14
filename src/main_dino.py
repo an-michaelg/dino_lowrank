@@ -31,9 +31,11 @@ from torchvision import datasets, transforms
 from torchvision import models as torchvision_models
 
 import utils
-import vision_transformer as vits
+#import vision_transformer as vits
+from model_lora_vit import get_vit
 from vision_transformer import DINOHead
 from data_transform import DataAugmentationDINO
+from dataloader_tmed import TMED2
 
 torchvision_archs = sorted(name for name in torchvision_models.__dict__
     if name.islower() and not name.startswith("__")
@@ -43,15 +45,25 @@ def get_args_parser():
     parser = argparse.ArgumentParser('DINO', add_help=False)
 
     # Model parameters
-    parser.add_argument('--arch', default='vit_small', type=str,
-        choices=['vit_tiny', 'vit_small', 'vit_base', 'xcit', 'deit_tiny', 'deit_small'] \
-                + torchvision_archs + torch.hub.list("facebookresearch/xcit:main"),
-        help="""Name of architecture to train. For quick experiments with ViTs,
-        we recommend using vit_tiny or vit_small.""")
-    parser.add_argument('--patch_size', default=16, type=int, help="""Size in pixels
-        of input square patches - default 16 (for 16x16 patches). Using smaller
-        values leads to better performance but requires more memory. Applies only
-        for ViTs (vit_tiny, vit_small and vit_base). If <16, we recommend disabling
+    # parser.add_argument('--arch', default='vit_small', type=str,
+        # choices=['vit_tiny', 'vit_small', 'vit_base', 'xcit', 'deit_tiny', 'deit_small'] \
+                # + torchvision_archs + torch.hub.list("facebookresearch/xcit:main"),
+        # help="""Name of architecture to train. For quick experiments with ViTs,
+        # we recommend using vit_tiny or vit_small.""")
+    # parser.add_argument('--patch_size', default=16, type=int, help="""Size in pixels
+        # of input square patches - default 16 (for 16x16 patches). Using smaller
+        # values leads to better performance but requires more memory. Applies only
+        # for ViTs (vit_tiny, vit_small and vit_base). If <16, we recommend disabling
+        # mixed precision training (--use_fp16 false) to avoid unstabilities.""")
+    """ Since we are starting from the DINO image domain initialization, 
+        we would like to take the weights from either DINO or DINOv2 models
+        thus the options here are changed 
+        - M
+    """
+    parser.add_argument('--arch', default='vits16', type=str,
+        choices=['vits16', 'vits14', 'vits8', 'vitb16', 'vitb14', 'vitb8'],
+        help="""Name of architecture to train pulled from the DINO repositories. 
+        For quick experiments with ViTs, use vitsX. If X<16, we recommend disabling
         mixed precision training (--use_fp16 false) to avoid unstabilities.""")
     parser.add_argument('--out_dim', default=65536, type=int, help="""Dimensionality of
         the DINO head output. For complex and large datasets large values (like 65k) work well.""")
@@ -118,15 +130,15 @@ def get_args_parser():
         Used for small local view cropping of multi-crop.""")
 
     # Misc
-    parser.add_argument('--data_path', default='/path/to/imagenet/train/', type=str,
-        help='Please specify path to the ImageNet training data.')
+    # parser.add_argument('--data_path', default='/path/to/imagenet/train/', type=str,
+        # help='Please specify path to the ImageNet training data.')
     parser.add_argument('--output_dir', default=".", type=str, help='Path to save logs and checkpoints.')
     parser.add_argument('--saveckp_freq', default=20, type=int, help='Save checkpoint every x epochs.')
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')
     parser.add_argument('--num_workers', default=10, type=int, help='Number of data loading workers per GPU.')
     parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
-    parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
+    #parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     return parser
 
 
@@ -138,12 +150,28 @@ def train_dino(args):
     cudnn.benchmark = True
 
     # ============ preparing data ... ============
+    """ Delegate this section to separate module for other datasets
+        such as TMED2
+        - M
+    """
+    # DataAugmentationDINO has been changed for grayscale images
+    transform = DataAugmentationDINO(
+        args.global_crops_scale,
+        args.local_crops_scale,
+        args.local_crops_number,
+    )
+    dataset = TMED2(
+        split: str = "unlabeled", # train/val/test/all/unlabeled
+        transform = transform,
+    )
+    """
     transform = DataAugmentationDINO(
         args.global_crops_scale,
         args.local_crops_scale,
         args.local_crops_number,
     )
     dataset = datasets.ImageFolder(args.data_path, transform=transform)
+    """
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
     data_loader = torch.utils.data.DataLoader(
         dataset,
@@ -156,6 +184,17 @@ def train_dino(args):
     print(f"Data loaded: there are {len(dataset)} images.")
 
     # ============ building student and teacher networks ... ============
+    """ Delegate this section to separate module 
+        w. ability to load pretrained vit backbone, lora,
+        freeze subset of weights (for lora)
+        - M
+    """
+    # Choice of -16 (v1), -14 (v2) and -8 (v1) models
+    student = get_vit(args.arch, lora_rank=0, ckpt_override_path=None)
+    teacher = get_vit(args.arch, lora_rank=0, ckpt_override_path=None)
+    embed_dim = student.embed_dim
+    
+    """
     # we changed the name DeiT-S for ViT-S to avoid confusions
     args.arch = args.arch.replace("deit", "vit")
     # if the network is a Vision Transformer (i.e. vit_tiny, vit_small, vit_base)
@@ -179,6 +218,8 @@ def train_dino(args):
         embed_dim = student.fc.weight.shape[1]
     else:
         print(f"Unknow architecture: {args.arch}")
+    
+    #"""
 
     # multi-crop wrapper handles forward with inputs of different resolutions
     student = utils.MultiCropWrapper(student, DINOHead(
