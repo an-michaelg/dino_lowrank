@@ -1,6 +1,6 @@
 ### Transformation functions for fully supervised and DINO ###
 
-from PIL import ImageOps, ImageFilter
+from PIL import ImageOps, ImageFilter, Image
 import numpy as np
 import torch
 import torchvision.transforms as transforms
@@ -61,12 +61,15 @@ class IncreaseSharp(object):
             return img
 
 class AdaptiveGamma(object):
-    def __init__(self, p):
+    def __init__(self, p, threshold=20):
         self.p = p
+        # some local views may have very small avg. intensity, skip these
+        self.threshold = threshold
         
     def __call__(self, img):
-        if np.random.rand() < self.p:
-            gamma = np.log(0.5*255)/np.log(np.mean(img))
+        img_mean = np.mean(img)
+        if img_mean > self.threshold and np.random.rand() < self.p:
+            gamma = np.log(0.5*255)/np.log(img_mean)
             return TF.adjust_gamma(img, 1/gamma)
         else:
             return img
@@ -82,7 +85,7 @@ class Solarization(object):
             return img
             
 # creds: https://github.com/facebookresearch/dino/blob/main/main_dino.py
-class DataAugmentationDino(object):
+class DataAugmentationDINO(object):
     def __init__(self, global_crops_scale=(0.4, 1), local_crops_scale=(0.05, 0.4), local_crops_number=8, mean=IMG_MEAN['natural'], std=IMG_STD['natural']):
         flip_and_color_jitter = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),

@@ -12,7 +12,7 @@ import lightning.pytorch as pl
 from typing import List, Dict, Union
 from typing import Any, Callable, Optional, Tuple
 
-DATASET_ROOT = "/workspace/datasets/"
+DATASET_ROOT = "/workspace/datasets/TMED/approved_users_only/"
 
 tmed_label_schemes: Dict[str, Dict[str, Union[int, float]]] = {
     'tufts':  {'no_AS': 0, 'mild_AS': 1, 'mildtomod_AS':1, 'moderate_AS': 2, 'severe_AS': 2},
@@ -154,7 +154,7 @@ class TMED2(Dataset):
             df = df[df["diagnosis_label"].isin(self.scheme.keys())]
             
         # populate some fields useful for input/label reading
-        if split == "unlabeled":
+        if split != "unlabeled":
             df['path'] = df.apply(self.get_filename, axis=1)
         else:
             df['path'] = df.apply(self.get_filename_unlabeled, axis=1)
@@ -197,7 +197,7 @@ class TMED2(Dataset):
     def get_filename(self, row):
         return os.path.join(self.dataset_root, row['SourceFolder'], row['query_key'])
         
-    def get_filename_unlabeled(row):
+    def get_filename_unlabeled(self, row):
         return os.path.join(self.dataset_root, 'unlabeled_set', 'unlabeled_set', row['query_key'])
     
     def get_pseudo(self):

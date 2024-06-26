@@ -21,7 +21,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 import torch
 import torch.nn as nn
 import torch.distributed as dist
@@ -34,7 +33,7 @@ import utils
 #import vision_transformer as vits
 from model_lora_vit import get_vit
 from vision_transformer import DINOHead
-from data_transform import DataAugmentationDINO
+from data_transforms import DataAugmentationDINO
 from dataloader_tmed import TMED2
 
 torchvision_archs = sorted(name for name in torchvision_models.__dict__
@@ -60,11 +59,19 @@ def get_args_parser():
         thus the options here are changed 
         - M
     """
-    parser.add_argument('--arch', default='vits16', type=str,
-        choices=['vits16', 'vits14', 'vits8', 'vitb16', 'vitb14', 'vitb8'],
-        help="""Name of architecture to train pulled from the DINO repositories. 
-        For quick experiments with ViTs, use vitsX. If X<16, we recommend disabling
-        mixed precision training (--use_fp16 false) to avoid unstabilities.""")
+    parser.add_argument('--arch', default='vit_small', type=str,
+        choices=['vit_small', 'vit_base'],
+        help="""Name of architecture to train. For quick experiments with ViTs,
+        we recommend using vit_tiny or vit_small.""")
+    parser.add_argument('--patch_size', default=16, type=int, choices=[8, 16], 
+        help="""Size in pixels of input square patches - default 16 (for 16x16 patches). 
+        Using smaller values leads to better performance but requires more memory. 
+        Applies only for ViTs (vit_tiny, vit_small and vit_base). If <16, we recommend 
+        disabling mixed precision training (--use_fp16 false) to avoid unstabilities.""")
+    parser.add_argument('--lora_rank', default=0, type=int, help="""Rank of the low-rank 
+        adaptation, where only additional low-rank weights are updated via backpropagation.
+        If lora_rank == 0, then full training is conducted.""")
+        
     parser.add_argument('--out_dim', default=65536, type=int, help="""Dimensionality of
         the DINO head output. For complex and large datasets large values (like 65k) work well.""")
     parser.add_argument('--norm_last_layer', default=True, type=utils.bool_flag,
@@ -138,7 +145,7 @@ def get_args_parser():
     parser.add_argument('--num_workers', default=10, type=int, help='Number of data loading workers per GPU.')
     parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
-    #parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
+    parser.add_argument("--local-rank", default=0, type=int, help="Please ignore and do not set this argument.")
     return parser
 
 
@@ -161,7 +168,7 @@ def train_dino(args):
         args.local_crops_number,
     )
     dataset = TMED2(
-        split: str = "unlabeled", # train/val/test/all/unlabeled
+        split = "unlabeled", # train/val/test/all/unlabeled
         transform = transform,
     )
     """
@@ -190,8 +197,8 @@ def train_dino(args):
         - M
     """
     # Choice of -16 (v1), -14 (v2) and -8 (v1) models
-    student = get_vit(args.arch, lora_rank=0, ckpt_override_path=None)
-    teacher = get_vit(args.arch, lora_rank=0, ckpt_override_path=None)
+    student = get_vit(args.arch, args.patch_size, lora_rank=args.lora_rank)
+    teacher = get_vit(args.arch, args.patch_size, lora_rank=args.lora_rank)
     embed_dim = student.embed_dim
     
     """

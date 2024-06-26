@@ -479,6 +479,18 @@ def init_distributed_mode(args):
     elif torch.cuda.is_available():
         print('Will run the code on one GPU.')
         args.rank, args.gpu, args.world_size = 0, 0, 1
+        # """
+        # This has been changed to support multiple GPUs 
+        # by appending e.g. CUDA_VISIBLE_DEVICES=0,1
+        # in front of the launch command in bash
+        # - M
+        # """
+        # args.rank, args.world_size = 0, 1
+        # if 'CUDA_VISIBLE_DEVICES' in os.environ:
+            # args.gpu = os.environ['CUDA_VISIBLE_DEVICES']
+        # else:
+            # print('Warning: No GPUs specified, default to GPU:0')
+            # args.gpu = 0
         os.environ['MASTER_ADDR'] = '127.0.0.1'
         os.environ['MASTER_PORT'] = '29500'
     else:
