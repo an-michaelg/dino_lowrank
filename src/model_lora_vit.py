@@ -112,3 +112,4 @@ def load_lora_vit_from_dino_ckpt(model, ckpt_path):
 
     # model is the lora_vit model with a consistent lora rank as the checkpoint
     model.load_state_dict(teacher, strict=False)
+    print(f"State_dict loaded from {ckpt_path}, double-check that arch parameters are consistent as the load was non-strict.")

@@ -23,7 +23,8 @@ tmed_label_schemes: Dict[str, Dict[str, Union[int, float]]] = {
 
 tmed_view_schemes: Dict[str, Dict[str, Union[int, float]]] = {
     'binary': {'A4C': 0, 'A2C': 0, 'PLAX':1, 'PSAX': 1, 'A4CorA2CorOther': 0},
-    'all': {'A4C': 0, 'A2C': 1, 'PLAX':2, 'PSAX': 3, 'A4CorA2CorOther': 4}
+    'all': {'A4C': 0, 'A2C': 1, 'PLAX':2, 'PSAX': 3, 'A4CorA2CorOther': 4},
+    'parasternal': {'PLAX': 0, 'PSAX':1},
 }
     
 
@@ -128,6 +129,7 @@ class TMED2(Dataset):
         self.split = split
         self.transform = transform
         self.target_transform = target_transform
+        self.parasternal_only = parasternal_only
         
         if split == "unlabeled":
             df_path = os.path.join(dataset_root, "TMED2_train_unlabeled.csv")
@@ -151,6 +153,7 @@ class TMED2(Dataset):
             
             # filter out any labels based on label scheme
             self.scheme = tmed_label_schemes[label_scheme_name]
+            self.num_classes = len(np.unique(list(self.scheme.values())))
             df = df[df["diagnosis_label"].isin(self.scheme.keys())]
             
         # populate some fields useful for input/label reading
@@ -181,7 +184,10 @@ class TMED2(Dataset):
         else:
             y = int(self.scheme[data_info["diagnosis_label"]]) # human-assigned GT
             view = data_info['view_label']
-            y_view = int(tmed_view_schemes['all'][view])
+            if self.parasternal_only:
+                y_view = int(tmed_view_schemes['parasternal'][view])
+            else:
+                y_view = int(tmed_view_schemes['all'][view])
 
         if self.transform is not None:
             img = self.transform(img)
